@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>3D Resolution Demo — Three.js</title>
+  <style>
+    /* Fullscreen canvas + simple UI */
+    html,body {
+      height: 100%;
+      margin: 0;
+      font-family: Inter, system-ui, sans-serif;
+      background: linear-gradient(180deg,#0b0f1a 0%, #1b2330 100%);
+      color: #e6eef8;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+    #app {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 8px;
+    }
+    header {
+      padding: 12px 18px;
+      display:flex;
+      align-items:center;
+      gap:12px;
+      background: rgba(255,255,255,0.02);
+      box-shadow: 0 2px 8px rgba(2,6,23,0.5);
+      z-index: 5;
+      backdrop-filter: blur(6px);
+    }
+    header h1 {
+      font-size: 1rem;
+      margin:0;
+      letter-spacing:0.6px;
+    }
+    #canvas-wrap {
+      position: relative;
+      overflow: hidden;
+    }
+    canvas {
+      display:block; /* no gaps below canvas */
+      width: 100%;
+      height: 100%;
+    }
+
+    /* small help badge */
+    .badge {
+      margin-left: auto;
+      font-size: 0.85rem;
+      opacity: 0.9;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+
+    /* credits */
+    .credits {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      font-size: 12px;
+      color: rgba(230,238,248,0.8);
+      background: rgba(2,6,23,0.45);
+      padding: 6px 8px;
+      border-radius: 6px;
+      backdrop-filter: blur(4px);
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>3D Resolution Demo — High-DPI Friendly WebGL</h1>
+      <div class="badge">Drag to orbit • Scroll to zoom</div>
+    </header>
+
+    <div id="canvas-wrap">
+      <!-- Three.js will insert a canvas here -->
+      <div class="credits">Three.js — devicePixelRatio aware</div>
+    </div>
+  </div>
+
+  <!-- Use ES module imports from jsDelivr CDN -->
+  <script type="module">
+    // Import three and helpers
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/controls/OrbitControls.js';
+    import { RGBELoader } from 'https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/loaders/RGBELoader.js';
+    import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/loaders/GLTFLoader.js';
+
+    // Core elements
+    const container = document.getElementById('canvas-wrap');
+    const scene = new THREE.Scene();
+
+    // Camera — use perspective, with nice default FOV
+    const camera = new THREE.PerspectiveCamera(45, 2, 0.1, 1000);
+    camera.position.set(3, 2, 6);
+
+    // Renderer — set alpha to true so background gradients show
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.physicallyCorrectLights = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Insert renderer's canvas into DOM
+    container.appendChild(renderer.domElement);
+
+    // Lights
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+    scene.add(hemi);
+
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(5,10,7);
+    dir.castShadow = true;
+    dir.shadow.camera.left = -10;
+    dir.shadow.camera.right = 10;
+    dir.shadow.camera.top = 10;
+    dir.shadow.camera.bottom = -10;
+    dir.shadow.mapSize.set(2048,2048);
+    scene.add(dir);
+
+    // Ground
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x111216, metalness: 0.1, roughness: 0.6 });
+    const groundGeo = new THREE.PlaneGeometry(40,40);
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.receiveShadow = true;
+    ground.rotation.x = -Math.PI/2;
+    ground.position.y = -0.75;
+    scene.add(ground);
+
+    // A central high-detail object — composite of shapes
+    const group = new THREE.Group();
+    scene.add(group);
+
+    // shiny outer shell
+    const shellMat = new THREE.MeshStandardMaterial({
+      color: 0x3aa8ff,
+      metalness: 0.7,
+      roughness: 0.15,
+      envMapIntensity: 1.0,
+    });
+
+    const innerMat = new THREE.MeshStandardMaterial({
+      color: 0x0b1220,
+      metalness: 0.2,
+      roughness: 0.35,
+    });
+
+    const sphere = new THREE.Mesh(new THREE.IcosahedronGeometry(1.2, 5), shellMat);
+    sphere.castShadow = true;
+    sphere.receiveShadow = false;
+    group.add(sphere);
+
+    // inner glowing core
+    const coreGeo = new THREE.SphereGeometry(0.6, 32, 32);
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0.95 });
+    const core = new THREE.Mesh(coreGeo, coreMat);
+    core.scale.set(0.95,0.95,0.95);
+    group.add(core);
+
+    // floating orbit pieces
+    const smallGeo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+    const smallMat = new THREE.MeshStandardMaterial({ color: 0xff6b6b, metalness: 0.4, roughness: 0.25 });
+    const orbiters = [];
+    for (let i=0;i<10;i++){
+      const m = new THREE.Mesh(smallGeo, smallMat);
+      const a = Math.PI*2*i/10;
+      const r = 2.2 + Math.sin(i)*0.2;
+      m.position.set(Math.cos(a)*r, (Math.sin(i*0.7)*0.3)+0.2, Math.sin(a)*r);
+      m.castShadow = true;
+      m.receiveShadow = false;
+      group.add(m);
+      orbiters.push({mesh:m,angle:a,r});
+    }
+
+    // Orbit controls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 2;
+    controls.maxDistance = 20;
+
+    // Resize handling (and devicePixelRatio awareness)
+    function resizeRendererToDisplaySize() {
+      const canvas = renderer.domElement;
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      // guard zero size
+      if (width === 0 || height === 0) return false;
+
+      // choose pixel ratio but cap for performance (optional)
+      const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap at 2
+      const needResize = canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr);
+      if (needResize) {
+        renderer.setPixelRatio(dpr);
+        renderer.setSize(width, height, false); // false => don't update CSS size (we want CSS to be 100%)
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
+      return needResize;
+    }
+
+    // Animation loop
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const t = clock.getElapsedTime();
+
+      // subtle rotations
+      group.rotation.y = t * 0.35;
+      group.rotation.x = Math.sin(t*0.2)*0.03;
+
+      // orbiters rotate around core
+      orbiters.forEach((o, idx) => {
+        const speed = 0.6 + (idx%3)*0.08;
+        o.angle += 0.01 * speed;
+        o.mesh.position.x = Math.cos(o.angle) * o.r;
+        o.mesh.position.z = Math.sin(o.angle) * o.r;
+        o.mesh.position.y = 0.4 + Math.sin(t*1.2 + idx) * 0.12;
+        o.mesh.rotation.x += 0.02 + idx*0.001;
+        o.mesh.rotation.y += 0.015 + idx*0.001;
+      });
+
+      // Core pulsing
+      core.scale.setScalar(0.92 + Math.sin(t*2.5)*0.06);
+
+      // ensure renderer matches size & DPR
+      resizeRendererToDisplaySize();
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // Initial sizing — give container full height (calc from viewport minus header)
+    function fillCanvasSize() {
+      // calculate available height under header
+      const headerHeight = document.querySelector('header').getBoundingClientRect().height;
+      container.style.height = `calc(100vh - ${headerHeight}px)`;
+      resizeRendererToDisplaySize();
+    }
+    window.addEventListener('resize', fillCanvasSize, {passive:true});
+    window.addEventListener('orientationchange', fillCanvasSize, {passive:true});
+    fillCanvasSize();
+
+    // Start
+    animate();
+
+    // Optional: handle double-click to fullscreen canvas
+    renderer.domElement.addEventListener('dblclick', async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await container.requestFullscreen();
+        } else {
+          await document.exitFullscreen();
+        }
+      } catch (err) {
+        console.warn('Fullscreen toggle failed', err);
+      }
+    });
+
+    // Helpful tip: log renderer info (for debugging)
+    console.log('Renderer:', renderer.getContext().getParameter(renderer.getContext().VERSION));
+    console.log('Device pixel ratio used:', renderer.getPixelRatio());
+  </script>
+</body>
+</html>
